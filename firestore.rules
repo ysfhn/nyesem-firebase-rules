@@ -1,0 +1,777 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============ HELPER FONKSİYONLARI ============
+    function isAuth() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isAuth() && request.auth.uid == userId;
+    }
+    function isAdmin() {
+      let userRole = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+      return isAuth() && (userRole == 'super_admin' || userRole == 'admin');
+    }
+    function isRestaurantOwner(restaurantId) {
+      return isAuth() && get(/databases/$(database)/documents/restaurants/$(restaurantId)).data.ownerId == request.auth.uid;
+    }
+    // Kullanıcının onaylı restoran sahibi olduğunu kontrol eder
+    // (pending_owner / rejected / normal user etkinlik veya restoran oluşturamaz)
+    function isApprovedOwner() {
+      let userRole = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+      return isAuth() && (userRole == 'restaurant_owner' || userRole == 'admin' || userRole == 'super_admin');
+    }
+    function isChatParticipant() {
+      return isAuth() && (
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.restaurantId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+    function isChatParticipantOnCreate() {
+      return isAuth() && (
+        request.resource.data.ownerId == request.auth.uid ||
+        request.resource.data.restaurantId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    // ============ RESTORANLAR ============
+    match /restaurants/{restaurantId} {
+      allow read: if true;
+      allow create: if isAdmin() || (
+        isApprovedOwner() && request.resource.data.ownerId == request.auth.uid
+      );
+      allow update, delete: if isAdmin() || (isAuth() && resource.data.ownerId == request.auth.uid);
+    }
+
+    // ============ KULLANICILAR ============
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId);
+      // Self-update: hassas alanları (role, isPremium, verified, premiumUntil, isAdmin) değiştiremez
+      allow update: if isAdmin() || (
+        isOwner(userId) &&
+        !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['role', 'isPremium', 'verified', 'premiumUntil', 'isAdmin', 'adminEmails'])
+      );
+      allow delete: if isAdmin();
+    }
+
+    // ============ QR MENÜ SİPARİŞLERİ ============
+    match /qrMenuOrders/{orderId} {
+      allow read: if isAuth();
+      allow create: if request.resource.data.keys().hasAll(['restaurantId', 'items', 'tableNumber'])
+                    && request.resource.data.items is list
+                    && request.resource.data.items.size() > 0
+                    && request.resource.data.items.size() <= 50;
+      allow update, delete: if isAuth();
+    }
+
+    // ============ GARSON ÇAĞRILARI ============
+    match /waiterCalls/{callId} {
+      allow read: if isAuth();
+      allow create: if request.resource.data.keys().hasAll(['restaurantId', 'tableNumber'])
+                    && request.resource.data.restaurantId is string
+                    && request.resource.data.tableNumber is string;
+      allow update, delete: if isAuth();
+    }
+
+    // ============ MARKETING ============
+    match /pendingContent/{docId} {
+      allow read: if isAuth() && (
+        resource.data.restaurantId == request.auth.uid ||
+        isRestaurantOwner(resource.data.restaurantId) ||
+        isAdmin()
+      );
+      allow create: if isAuth();
+      allow update, delete: if isAuth() && (
+        resource.data.restaurantId == request.auth.uid ||
+        isRestaurantOwner(resource.data.restaurantId) ||
+        isAdmin()
+      );
+    }
+    match /socialPosts/{docId} {
+      allow read: if isAuth() && (
+        resource.data.restaurantId == request.auth.uid ||
+        isRestaurantOwner(resource.data.restaurantId) ||
+        isAdmin()
+      );
+      allow create: if isAuth();
+      allow update, delete: if isAdmin() || (
+        isAuth() && isRestaurantOwner(resource.data.restaurantId)
+      );
+    }
+    match /marketingContent/{docId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+    match /emailCampaigns/{docId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+    match /seoKeywords/{docId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+    match /marketingStats/{docId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+    match /settings/{docId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // ============ REZERVASYONLAR ============
+    match /reservations/{reservationId} {
+      allow read: if isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.restaurantOwnerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuth() && (
+        resource.data.restaurantOwnerId == request.auth.uid ||
+        resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if false;
+    }
+
+    // ============ ETKİNLİKLER ============
+    match /userEvents/{eventId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update, delete: if isAuth() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+    }
+    match /eventOffers/{offerId} {
+      allow read: if isAuth();
+      allow create: if isApprovedOwner()
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isAuth() && (
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.restaurantId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+    match /venueEvents/{eventId} {
+      allow read: if true;
+      allow create: if isApprovedOwner()
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isAuth() && (
+        resource.data.ownerId == request.auth.uid || isAdmin()
+      );
+    }
+    match /eventReservations/{reservationId} {
+      allow read: if isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.ownerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.ownerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+    match /externalEvents/{eventId} {
+      allow read: if resource.data.status == 'active';
+      allow create: if isApprovedOwner() && request.resource.data.ownerId == request.auth.uid;
+      allow update: if isAuth() && request.resource.data.ownerId == request.auth.uid;
+      allow delete: if isAuth() && resource.data.ownerId == request.auth.uid;
+    }
+
+    // ============ KAMPANYALAR ============
+    match /campaigns/{campaignId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /minuteDeals/{dealId} {
+      allow read: if true;
+      allow create: if isApprovedOwner();
+      allow update, delete: if isAuth() && (
+        resource.data.createdBy == request.auth.uid ||
+        resource.data.ownerId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    // ============ PAKETLER ============
+    match /restaurant_packages/{packageId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+    match /packages/{packageId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // ============ ABONELİKLER ============
+    match /subscriptions/{subId} {
+      allow read: if isAuth() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow create: if isAuth();
+      allow update, delete: if isAdmin();
+    }
+
+    // ============ FİŞLER ============
+    match /receipts/{receiptId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth() && (
+        resource.data.user == request.auth.uid ||
+        resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // ============ İŞYERİ DOĞRULAMA ============
+    match /restaurant_verifications/{verificationId} {
+      allow read: if isAuth() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow create: if isAuth();
+      // Owner kendi başvurusunu yenileyebilir (sadece pending'e çevirip bilgileri günceller)
+      // status'u sadece "pending" yapabilir - admin "approved/rejected" yapar
+      allow update: if isAdmin() || (
+        isAuth() &&
+        resource.data.userId == request.auth.uid &&
+        resource.data.status == "rejected" &&
+        request.resource.data.status == "pending"
+      );
+      allow delete: if isAdmin();
+    }
+
+    // ============ ZİNCİR GRUPLARI ============
+    match /restaurant_groups/{groupId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // ============ MASA DÜZENLERİ ============
+    match /restaurantLayouts/{layoutId} {
+      allow read: if isAuth();
+      allow create: if isApprovedOwner();
+      allow update, delete: if isAuth() && (
+        resource.data.ownerId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // ============ YORUMLAR ============
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isAuth();
+      allow update, delete: if isAuth() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // ============ BİLDİRİMLER ============
+    match /notifications/{notificationId} {
+      allow read: if isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.targetUserId == request.auth.uid ||
+        !("userId" in resource.data) ||
+        resource.data.userId == null ||
+        isAdmin()
+      );
+      // Spam koruma: kullanıcı sadece kendisine bildirim oluşturabilir; admin herkese
+      allow create: if isAdmin() || (
+        isAuth() && (
+          request.resource.data.userId == request.auth.uid ||
+          request.resource.data.targetUserId == request.auth.uid
+        )
+      );
+      allow update: if isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.targetUserId == request.auth.uid ||
+        !("userId" in resource.data) ||
+        resource.data.userId == null ||
+        isAdmin()
+      );
+      allow delete: if isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.targetUserId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+    match /systemNotifications/{notificationId} {
+      allow read: if isAuth() && (
+        (resource.data.target == 'admin' && isAdmin()) ||
+        resource.data.targetUserId == request.auth.uid
+      );
+      allow create: if isAdmin() || (
+        isAuth() &&
+        request.resource.data.targetUserId == request.auth.uid &&
+        request.resource.data.target != 'admin'
+      );
+      allow update: if isAuth() && (
+        resource.data.targetUserId == request.auth.uid || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // ============ REKLAMLAR ============
+    match /advertisements/{adId} {
+      allow read: if true;
+      allow create: if isApprovedOwner();
+      allow update, delete: if isAuth() && (
+        resource.data.createdBy == request.auth.uid ||
+        resource.data.ownerId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+    match /advertisementRequests/{requestId} {
+      allow read: if isAuth() && (
+        resource.data.ownerId == request.auth.uid || isAdmin()
+      );
+      allow create: if isApprovedOwner() && request.resource.data.ownerId == request.auth.uid;
+      allow update: if isAuth() && (
+        resource.data.ownerId == request.auth.uid || isAdmin()
+      );
+      allow delete: if isAuth() && (
+        (resource.data.ownerId == request.auth.uid && resource.data.status == "pending") || isAdmin()
+      );
+    }
+    match /advertisementClicks/{clickId} {
+      allow create: if isAuth();
+      allow read: if isAuth();
+      allow update, delete: if false;
+    }
+    match /sponsorAdvertisements/{adId} {
+      allow read: if true;
+      allow create: if isApprovedOwner();
+      allow update, delete: if isAuth() && (
+        resource.data.createdBy == request.auth.uid ||
+        resource.data.ownerId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    // ============ DESTEK TALEPLERİ ============
+    match /supportTickets/{ticketId} {
+      allow read: if isAuth() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuth() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow delete: if isAdmin();
+
+      match /messages/{messageId} {
+        allow read, create: if isAuth() && (
+          get(/databases/$(database)/documents/supportTickets/$(ticketId)).data.userId == request.auth.uid ||
+          isAdmin()
+        );
+        allow update, delete: if false;
+      }
+    }
+
+    // ============ ADMIN-RESTORAN CHAT ============
+    match /adminRestaurantChats/{chatId} {
+      allow read: if isChatParticipant();
+      allow create: if isChatParticipantOnCreate();
+      allow update: if isChatParticipant();
+      allow delete: if isAdmin();
+      match /messages/{messageId} {
+        allow read, create: if isAuth() && (
+          get(/databases/$(database)/documents/adminRestaurantChats/$(chatId)).data.ownerId == request.auth.uid ||
+          get(/databases/$(database)/documents/adminRestaurantChats/$(chatId)).data.restaurantId == request.auth.uid ||
+          isAdmin()
+        );
+      }
+    }
+
+    // ============ TARİFLER ============
+    match /recipes/{recipeId} {
+      allow read: if true;
+      allow create: if isAuth();
+      allow update: if isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.authorId == request.auth.uid ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewCount', 'likeCount']) ||
+        isAdmin()
+      );
+      allow delete: if isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.authorId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+    match /recipeComments/{commentId} {
+      allow read: if true;
+      allow create: if isAuth();
+      allow update, delete: if isAuth() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+    }
+    match /recipeLikes/{likeId} {
+      allow read: if true;
+      allow create: if isAuth();
+      allow update: if false;
+      allow delete: if isAuth() && resource.data.userId == request.auth.uid;
+    }
+    match /recipeRatings/{ratingId} {
+      allow read: if true;
+      allow create: if isAuth();
+      allow update: if isAuth() && resource.data.userId == request.auth.uid;
+      allow delete: if isAuth() && resource.data.userId == request.auth.uid;
+    }
+    match /savedRecipes/{savedId} {
+      allow read: if isAuth() && resource.data.userId == request.auth.uid;
+      allow create: if isAuth();
+      allow update: if false;
+      allow delete: if isAuth() && resource.data.userId == request.auth.uid;
+    }
+
+    // ============ WORKSHOPLAR ============
+    match /workshops/{workshopId} {
+      allow read: if true;
+      allow create: if isAuth();
+      allow update, delete: if isAuth() && (
+        resource.data.hostId == request.auth.uid ||
+        resource.data.creatorId == request.auth.uid ||
+        resource.data.instructorId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+    match /kitchenWorkshops/{workshopId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth() && (
+        resource.data.hostId == request.auth.uid ||
+        resource.data.hostUserId == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if isAuth() && (
+        resource.data.hostId == request.auth.uid ||
+        resource.data.hostUserId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+    match /workshopRegistrations/{registrationId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth() && resource.data.userId == request.auth.uid;
+      allow delete: if isAuth() && resource.data.userId == request.auth.uid;
+    }
+
+    // ============ CANLI MENÜ ETKİNLİKLERİ ============
+    match /live_menu_events/{eventId} {
+      allow read: if true;
+      allow create: if isApprovedOwner();
+      allow update, delete: if isAuth() && (
+        resource.data.createdBy == request.auth.uid ||
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.restaurantOwnerId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    // ============ AKTİVİTELER / SOSYAL ============
+    match /activities/{activityId} {
+      allow read: if true;
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAuth() && resource.data.userId == request.auth.uid;
+    }
+
+    // ============ SOHBETLER (Kullanici-Kullanici) ============
+    match /chats/{chatId} {
+      allow read: if isAuth() && (
+        resource.data.participants.hasAny([request.auth.uid])
+      );
+      allow create: if isAuth() && request.auth.uid in request.resource.data.participants;
+      allow update: if isAuth() && resource.data.participants.hasAny([request.auth.uid]);
+      allow delete: if isAdmin() || (isAuth() && resource.data.createdBy == request.auth.uid);
+
+      match /messages/{messageId} {
+        allow read: if isAuth();
+        allow create: if isAuth();
+        allow update: if isAuth();
+        allow delete: if isAuth() && resource.data.senderId == request.auth.uid;
+      }
+    }
+
+    // ============ ORTAK YEMEK ODALARI ============
+    // Snake_case (app kullaniyor)
+    match /co_dining_rooms/{roomId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth();
+      allow delete: if isAuth() && (
+        resource.data.createdBy == request.auth.uid || isAdmin()
+      );
+
+      match /messages/{messageId} {
+        allow read: if isAuth();
+        allow create: if isAuth() && request.resource.data.senderUid == request.auth.uid;
+        allow delete: if isAuth() && resource.data.userId == request.auth.uid;
+      }
+    }
+    // CamelCase (admin kullaniyor)
+    match /coDiningRooms/{roomId} {
+      allow read: if true;
+      allow create: if isAuth();
+      allow update: if isAuth();
+      allow delete: if isAuth() && (
+        resource.data.creatorId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // ============ BULUSMALAR ============
+    match /meetings/{meetingId} {
+      allow read: if isAuth() && (
+        resource.data.ownerId == request.auth.uid ||
+        request.auth.uid in resource.data.participants ||
+        resource.data.creatorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isAuth();
+      allow update: if isAuth() && (
+        resource.data.ownerId == request.auth.uid ||
+        request.auth.uid in resource.data.participants ||
+        resource.data.creatorId == request.auth.uid
+      );
+      allow delete: if isAuth() && (
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.creatorId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    // ============ ANKETLER ============
+    match /polls/{pollId} {
+      allow read: if isAuth() && (
+        resource.data.ownerId == request.auth.uid ||
+        request.auth.uid in resource.data.participants ||
+        isAdmin()
+      );
+      allow create: if isAuth() && request.resource.data.ownerId == request.auth.uid;
+      allow update: if isAuth() && (
+        resource.data.ownerId == request.auth.uid ||
+        request.auth.uid in resource.data.participants
+      );
+      allow delete: if isAuth() && resource.data.ownerId == request.auth.uid;
+    }
+
+    // ============ OZEL GUNLER ============
+    match /specialDays/{dayId} {
+      allow read: if true;
+      allow create: if isAuth();
+      allow update: if isAuth() && (
+        resource.data.createdBy == request.auth.uid ||
+        resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if isAuth() && (
+        resource.data.createdBy == request.auth.uid ||
+        resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    // ============ SEYAHAT PLANLARI ============
+    match /travelPlans/{planId} {
+      allow read: if isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        (resource.data.isPublic == true) ||
+        isAdmin()
+      );
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAuth() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // ============ ZIYARET ALBUMLERI ============
+    // CamelCase (admin legacy)
+    match /visitAlbums/{albumId} {
+      allow read: if isAuth();
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAuth() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      match /photos/{photoId} {
+        allow read: if isAuth();
+        allow create, update, delete: if false;
+      }
+    }
+    // Snake_case (app kullaniyor)
+    match /visit_albums/{albumId} {
+      allow read: if true;
+      allow create: if isAuth() && request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if isAuth() && (
+        resource.data.createdBy == request.auth.uid || isAdmin()
+      );
+
+      match /visit_photos/{photoId} {
+        allow read: if true;
+        allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+        allow update, delete: if isAuth() && (
+          resource.data.userId == request.auth.uid ||
+          get(/databases/$(database)/documents/visit_albums/$(albumId)).data.createdBy == request.auth.uid
+        );
+      }
+    }
+
+    // ============ FCM TOKENS ============
+    match /fcmTokens/{tokenId} {
+      allow read: if isAdmin();
+      allow create, update: if isAuth();
+      allow delete: if isAdmin();
+    }
+
+    // ============ YEMEK PLANLARI ============
+    match /mealPlans/{userId} {
+      allow read: if isAuth() && request.auth.uid == userId;
+      allow create, update: if isAuth() && request.auth.uid == userId;
+      allow delete: if isAuth() && request.auth.uid == userId;
+    }
+
+    // ============ EXCHANGE CHATS ============
+    match /exchangeChats/{chatId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth();
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isAuth();
+        allow create: if isAuth();
+        allow update, delete: if false;
+      }
+    }
+
+    // ============ BLOG YAZILARI ============
+    match /blogPosts/{postId} {
+      allow read: if true;
+      allow create: if isAuth();
+      allow update: if isAuth() && (
+        resource.data.authorId == request.auth.uid || isAdmin()
+      );
+      allow delete: if isAuth() && (
+        resource.data.authorId == request.auth.uid || isAdmin()
+      );
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isAuth();
+        allow update: if isAuth() && resource.data.userId == request.auth.uid;
+        allow delete: if isAuth() && (
+          resource.data.userId == request.auth.uid || isAdmin()
+        );
+      }
+    }
+
+    // ============ FORUM ============
+    match /forumTopics/{topicId} {
+      allow read: if true;
+      allow create: if isAuth();
+      allow update: if isAuth() && (
+        resource.data.authorId == request.auth.uid ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewCount', 'likeCount', 'likedBy', 'replyCount', 'lastReplyAt', 'lastReplyBy', 'lastReplyByName']) ||
+        isAdmin()
+      );
+      allow delete: if isAuth() && (
+        resource.data.authorId == request.auth.uid || isAdmin()
+      );
+    }
+    match /forumReplies/{replyId} {
+      allow read: if true;
+      allow create: if isAuth();
+      allow update: if isAuth() && resource.data.authorId == request.auth.uid;
+      allow delete: if isAuth() && (
+        resource.data.authorId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // ============ MENU AI RESULTS ============
+    match /menuAiResults/{resultId} {
+      allow read: if isAuth() && resource.data.userId == request.auth.uid;
+      allow create: if isAuth();
+      allow update, delete: if false;
+    }
+
+    // ============ AFFILIATE CLICKS ============
+    match /affiliateClicks/{clickId} {
+      allow create: if isAuth();
+      allow read: if isAuth() && resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ============ ANALYTICS ============
+    match /analytics_events/{eventId} {
+      allow create: if isAuth();
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+    match /analytics_user_properties/{propId} {
+      allow create: if isAuth();
+      allow read: if isAuth() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow update, delete: if false;
+    }
+
+    // ============ BLIND TASTE ============
+    match /blindTasteChallenges/{challengeId} {
+      allow read: if isAuth();
+      allow create: if isAdmin();
+      allow update: if isAuth();
+      allow delete: if isAdmin();
+    }
+    match /blindTasteQuestions/{questionId} {
+      allow read: if isAuth();
+      allow create, update, delete: if isAdmin();
+    }
+    match /blindTasteResults/{resultId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update, delete: if false;
+    }
+    match /blindTasteStats/{userId} {
+      allow read: if isAuth();
+      allow create: if isAuth() && request.auth.uid == userId;
+      allow update: if isAuth() && request.auth.uid == userId;
+      allow delete: if false;
+    }
+    match /blindTasteLeaderboard/{leaderId} {
+      allow read: if isAuth();
+      allow create, update: if isAuth();
+      allow delete: if false;
+    }
+
+    // ============ HIKAYELER ============
+    match /stories/{storyId} {
+      allow read: if isAuth();
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuth();
+      allow delete: if isAuth() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // ============ AI KOTA SAYAÇLARI ============
+    // Sadece backend (Admin SDK) yazar; client kendi sayacını okuyabilir
+    match /aiUsage/{usageId} {
+      allow read: if isAuth() && (
+        resource.data.uid == request.auth.uid || isAdmin()
+      );
+      allow write: if false; // sadece Admin SDK
+    }
+
+    // ============ WILDCARD — Tanimlanmayan koleksiyonlara erisim YOK ============
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

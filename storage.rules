@@ -1,0 +1,142 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Admin email listesi (storage rules custom function destekler)
+    function isStorageAdmin() {
+      return request.auth != null && (
+        request.auth.token.email == 'admin@nyesem.com' ||
+        request.auth.token.email == 'ysfhann@gmail.com' ||
+        request.auth.token.admin == true
+      );
+    }
+    // Dosya boyutu limitleri
+    function isValidImageSize() {
+      return request.resource.size < 5 * 1024 * 1024; // 5MB limit
+    }
+    function isValid3DModelSize() {
+      return request.resource.size < 50 * 1024 * 1024; // 50MB limit for 3D models
+    }
+    function isValidDocumentSize() {
+      return request.resource.size < 10 * 1024 * 1024; // 10MB limit for documents
+    }
+    // Content-type validasyonu
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+    function isDocument() {
+      return request.resource.contentType.matches('image/.*')
+          || request.resource.contentType.matches('application/pdf');
+    }
+
+    // Restoran gorselleri - herkes okuyabilir
+    match /restaurants/{imageId} {
+      allow read: if true;
+      allow write: if request.auth != null && isValidImageSize() && isImage();
+    }
+
+    // Restaurant photos - public read for menu, authenticated write
+    match /restaurant-photos/{restaurantId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null && isValidImageSize() && isImage();
+    }
+
+    // Reklam gorselleri - herkes okuyabilir
+    match /advertisements/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null && isValidImageSize() && isImage();
+    }
+    match /advertisements/{folder}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null && isValidImageSize() && isImage();
+    }
+
+    // Menu gorselleri - herkes okuyabilir
+    match /menus/{imageId} {
+      allow read: if true;
+      allow write: if request.auth != null && isValidImageSize() && isImage();
+    }
+    match /menu-images/{restaurantId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null && isValidImageSize() && isImage();
+    }
+
+    // Menu AI gorselleri - sadece sahibi yukleyebilir ve okuyabilir
+    match /menu-ai/{userId}/{imageId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isStorageAdmin());
+      allow write: if request.auth != null && request.auth.uid == userId && isValidImageSize() && isImage();
+    }
+
+    // 3D modeller - herkes okuyabilir
+    match /3d-models/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && isValid3DModelSize();
+    }
+
+    // Workshop gorselleri - herkes okuyabilir
+    match /workshops/{imageId} {
+      allow read: if true;
+      allow write: if request.auth != null && isValidImageSize() && isImage();
+    }
+
+    // Kullanici avatarlari - herkes okuyabilir
+    match /avatars/{userId}/{imageId} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId && isValidImageSize() && isImage();
+    }
+
+    // Fis gorselleri - sadece sahibi ve adminler
+    match /receipts/{userId}/{imageId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isStorageAdmin());
+      allow write: if request.auth != null && request.auth.uid == userId && isValidImageSize() && isImage();
+    }
+
+    // Tarif gorselleri - herkes okuyabilir
+    match /recipes/{imageId} {
+      allow read: if true;
+      allow write: if request.auth != null && isValidImageSize() && isImage();
+    }
+
+    // Ziyaret albumleri - herkes okuyabilir
+    match /visits/{userId}/{albumId}/{imageId} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId && isValidImageSize() && isImage();
+    }
+
+    // Hikaye gorselleri - herkes okuyabilir, sadece sahibi yukleyebilir
+    match /stories/{userId}/{imageId} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId && isValidImageSize() && isImage();
+    }
+
+    // Offer images - users can upload their own offer images
+    match /offer-images/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId && isValidImageSize() && isImage();
+    }
+
+    // Verification documents - kimlik belgeleri, sadece sahip ve admin
+    match /verifications/{userId}/{fileName} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isStorageAdmin());
+      allow write: if request.auth != null && request.auth.uid == userId && isValidDocumentSize() && isDocument();
+    }
+
+    // Admin logo
+    match /admin-logo/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && isValidImageSize() && isImage();
+    }
+
+    // Owner logos
+    match /owner_logos/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId && isValidImageSize() && isImage();
+    }
+
+    // Wildcard: tanimlanmayan path'lere erisim ENGELLE
+    match /{allPaths=**} {
+      allow read: if false;
+      allow write: if false;
+    }
+  }
+}
