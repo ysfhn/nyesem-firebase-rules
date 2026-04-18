@@ -67,6 +67,12 @@ service firebase.storage {
       allow write: if request.auth != null && request.auth.uid == userId && isValidImageSize() && isImage();
     }
 
+    // Chat AI gorselleri - sadece sahibi (Cloud Functions admin SDK ile bypass eder)
+    match /chat-images/{userId}/{imageId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isStorageAdmin());
+      allow write: if request.auth != null && request.auth.uid == userId && isValidImageSize() && isImage();
+    }
+
     // 3D modeller - herkes okuyabilir
     match /3d-models/{allPaths=**} {
       allow read: if true;
@@ -130,6 +136,12 @@ service firebase.storage {
     // Owner logos
     match /owner_logos/{userId}/{fileName} {
       allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId && isValidImageSize() && isImage();
+    }
+
+    // Review photos — sadece sahibi yükleyebilir
+    match /review_photos/{userId}/{fileName} {
+      allow read: if true;
       allow write: if request.auth != null && request.auth.uid == userId && isValidImageSize() && isImage();
     }
 

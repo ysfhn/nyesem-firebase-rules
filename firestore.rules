@@ -231,6 +231,19 @@ service cloud.firestore {
         isAdmin()
       );
       allow delete: if isAdmin();
+
+      // 👍 Faydalı bulma oyları (eski sistem)
+      match /helpful/{helpfulId} {
+        allow read: if true;
+        allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+        allow delete: if isAuth() && helpfulId == request.auth.uid;
+      }
+      // 🎉 Çoklu emoji reaction'ları
+      match /reactions/{reactionId} {
+        allow read: if true;
+        allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+        allow delete: if isAuth() && resource.data.userId == request.auth.uid;
+      }
     }
 
     // ============ İŞYERİ DOĞRULAMA ============
@@ -268,10 +281,21 @@ service cloud.firestore {
     // ============ YORUMLAR ============
     match /reviews/{reviewId} {
       allow read: if true;
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
       allow update, delete: if isAuth() && (
         resource.data.userId == request.auth.uid || isAdmin()
       );
+
+      match /helpful/{helpfulId} {
+        allow read: if true;
+        allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+        allow delete: if isAuth() && helpfulId == request.auth.uid;
+      }
+      match /reactions/{reactionId} {
+        allow read: if true;
+        allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+        allow delete: if isAuth() && resource.data.userId == request.auth.uid;
+      }
     }
 
     // ============ BİLDİRİMLER ============
@@ -482,6 +506,12 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
       allow update, delete: if isAuth() && resource.data.userId == request.auth.uid;
+
+      match /reactions/{reactionId} {
+        allow read: if isAuth();
+        allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+        allow delete: if isAuth() && resource.data.userId == request.auth.uid;
+      }
     }
 
     // ============ SOHBETLER (Kullanici-Kullanici) ============
@@ -769,7 +799,67 @@ service cloud.firestore {
       allow write: if false; // sadece Admin SDK
     }
 
-    // ============ WILDCARD — Tanimlanmayan koleksiyonlara erisim YOK ============
+
+    // ============ BLIND TASTE DUELS (app-only) ============
+    match /blindTasteDuels/{duelId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth() && (
+        resource.data.hostId == request.auth.uid ||
+        resource.data.guestId == request.auth.uid ||
+        (resource.data.status == 'waiting' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['guestId', 'status', 'startedAt']))
+      );
+      allow delete: if false;
+    }
+
+    // ============ COOKING HISTORY (app-only) ============
+    match /cookingHistory/{historyId} {
+      allow read: if isAuth() && resource.data.userId == request.auth.uid;
+      allow create: if isAuth();
+      allow update: if false;
+      allow delete: if isAuth() && resource.data.userId == request.auth.uid;
+    }
+
+    // ============ TRAVEL CHECKLISTS (app-only) ============
+    match /travelChecklists/{checklistId} {
+      allow read: if isAuth() && resource.data.userId == request.auth.uid;
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuth() && resource.data.userId == request.auth.uid;
+      allow delete: if isAuth() && resource.data.userId == request.auth.uid;
+    }
+
+    // ============ ESIM PURCHASES (app-only, server-managed) ============
+    match /esimPurchases/{purchaseId} {
+      allow read: if isAuth() && resource.data.userId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    // ============ FEATURE WAITLIST (app-only) ============
+    match /featureWaitlist/{entryId} {
+      allow read: if isAuth() && resource.data.userId == request.auth.uid;
+      allow create, update: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // ============ CRASH REPORTS (app-only) ============
+    match /crashReports/{reportId} {
+      allow read: if isAdmin();
+      allow create: if isAuth();
+      allow update, delete: if isAdmin();
+    }
+
+    // ============ CHATBOT (server-only) ============
+    match /chatbot_rate_limits/{userId}    { allow read, write: if false; }
+    match /chatbot_usage/{logId}           { allow read: if isAdmin(); allow write: if false; }
+    match /chatbot_daily_usage/{docId}     { allow read, write: if false; }
+    match /chatbot_blocked/{docId}         { allow read: if isAdmin(); allow write: if false; }
+
+    // ============ EMAIL / PASSWORD (server-only) ============
+    match /email_rate_limits/{docId}       { allow read, write: if false; }
+    match /emailVerifications/{docId}      { allow read, write: if false; }
+    match /passwordResets/{docId}          { allow read, write: if false; }
+
+        // ============ WILDCARD — Tanimlanmayan koleksiyonlara erisim YOK ============
     match /{document=**} {
       allow read, write: if false;
     }
