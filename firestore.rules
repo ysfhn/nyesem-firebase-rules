@@ -62,11 +62,15 @@ service cloud.firestore {
     // ============ QR MENÜ SİPARİŞLERİ ============
     match /qrMenuOrders/{orderId} {
       allow read: if isAuth();
+      // QR menü siparişi anonim oluşturulabilir (müşteri giriş yapmadan)
       allow create: if request.resource.data.keys().hasAll(['restaurantId', 'items', 'tableNumber'])
                     && request.resource.data.items is list
                     && request.resource.data.items.size() > 0
                     && request.resource.data.items.size() <= 50;
-      allow update, delete: if isAuth();
+      // Sadece restoran sahibi güncelleyebilir/silebilir
+      allow update, delete: if isAuth() && (
+        isRestaurantOwner(resource.data.restaurantId) || isAdmin()
+      );
     }
 
     // ============ GARSON ÇAĞRILARI ============
@@ -75,7 +79,10 @@ service cloud.firestore {
       allow create: if request.resource.data.keys().hasAll(['restaurantId', 'tableNumber'])
                     && request.resource.data.restaurantId is string
                     && request.resource.data.tableNumber is string;
-      allow update, delete: if isAuth();
+      // Sadece restoran sahibi/admin durumu güncelleyebilir/silebilir
+      allow update, delete: if isAuth() && (
+        isRestaurantOwner(resource.data.restaurantId) || isAdmin()
+      );
     }
 
     // ============ MARKETING ============
@@ -85,7 +92,11 @@ service cloud.firestore {
         isRestaurantOwner(resource.data.restaurantId) ||
         isAdmin()
       );
-      allow create: if isAuth();
+      // Yalnızca onaylı owner kendi restaurantId'si için içerik oluşturabilir
+      allow create: if isApprovedOwner() && (
+        request.resource.data.restaurantId == request.auth.uid ||
+        isRestaurantOwner(request.resource.data.restaurantId)
+      );
       allow update, delete: if isAuth() && (
         resource.data.restaurantId == request.auth.uid ||
         isRestaurantOwner(resource.data.restaurantId) ||
@@ -98,7 +109,10 @@ service cloud.firestore {
         isRestaurantOwner(resource.data.restaurantId) ||
         isAdmin()
       );
-      allow create: if isAuth();
+      allow create: if isApprovedOwner() && (
+        request.resource.data.restaurantId == request.auth.uid ||
+        isRestaurantOwner(request.resource.data.restaurantId)
+      );
       allow update, delete: if isAdmin() || (
         isAuth() && isRestaurantOwner(resource.data.restaurantId)
       );
@@ -143,7 +157,7 @@ service cloud.firestore {
     // ============ ETKİNLİKLER ============
     match /userEvents/{eventId} {
       allow read: if isAuth();
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
       allow update, delete: if isAuth() && (
         resource.data.userId == request.auth.uid || isAdmin()
       );
@@ -217,14 +231,21 @@ service cloud.firestore {
       allow read: if isAuth() && (
         resource.data.userId == request.auth.uid || isAdmin()
       );
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
       allow update, delete: if isAdmin();
     }
 
     // ============ FİŞLER ============
     match /receipts/{receiptId} {
-      allow read: if isAuth();
-      allow create: if isAuth();
+      allow read: if isAuth() && (
+        resource.data.user == request.auth.uid ||
+        resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isAuth() && (
+        request.resource.data.user == request.auth.uid ||
+        request.resource.data.userId == request.auth.uid
+      );
       allow update: if isAuth() && (
         resource.data.user == request.auth.uid ||
         resource.data.userId == request.auth.uid ||
@@ -251,7 +272,7 @@ service cloud.firestore {
       allow read: if isAuth() && (
         resource.data.userId == request.auth.uid || isAdmin()
       );
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
       // Owner kendi başvurusunu yenileyebilir (sadece pending'e çevirip bilgileri günceller)
       // status'u sadece "pending" yapabilir - admin "approved/rejected" yapar
       allow update: if isAdmin() || (
@@ -272,7 +293,7 @@ service cloud.firestore {
     // ============ MASA DÜZENLERİ ============
     match /restaurantLayouts/{layoutId} {
       allow read: if isAuth();
-      allow create: if isApprovedOwner();
+      allow create: if isApprovedOwner() && request.resource.data.ownerId == request.auth.uid;
       allow update, delete: if isAuth() && (
         resource.data.ownerId == request.auth.uid || isAdmin()
       );
@@ -366,7 +387,10 @@ service cloud.firestore {
       );
     }
     match /advertisementClicks/{clickId} {
-      allow create: if isAuth();
+      allow create: if isAuth() && (
+        !("userId" in request.resource.data) ||
+        request.resource.data.userId == request.auth.uid
+      );
       allow read: if isAuth();
       allow update, delete: if false;
     }
@@ -418,7 +442,10 @@ service cloud.firestore {
     // ============ TARİFLER ============
     match /recipes/{recipeId} {
       allow read: if true;
-      allow create: if isAuth();
+      allow create: if isAuth() && (
+        request.resource.data.userId == request.auth.uid ||
+        request.resource.data.authorId == request.auth.uid
+      );
       allow update: if isAuth() && (
         resource.data.userId == request.auth.uid ||
         resource.data.authorId == request.auth.uid ||
@@ -433,26 +460,26 @@ service cloud.firestore {
     }
     match /recipeComments/{commentId} {
       allow read: if true;
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
       allow update, delete: if isAuth() && (
         resource.data.userId == request.auth.uid || isAdmin()
       );
     }
     match /recipeLikes/{likeId} {
       allow read: if true;
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
       allow update: if false;
       allow delete: if isAuth() && resource.data.userId == request.auth.uid;
     }
     match /recipeRatings/{ratingId} {
       allow read: if true;
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuth() && resource.data.userId == request.auth.uid;
       allow delete: if isAuth() && resource.data.userId == request.auth.uid;
     }
     match /savedRecipes/{savedId} {
       allow read: if isAuth() && resource.data.userId == request.auth.uid;
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
       allow update: if false;
       allow delete: if isAuth() && resource.data.userId == request.auth.uid;
     }
@@ -460,7 +487,11 @@ service cloud.firestore {
     // ============ WORKSHOPLAR ============
     match /workshops/{workshopId} {
       allow read: if true;
-      allow create: if isAuth();
+      allow create: if isAuth() && (
+        request.resource.data.hostId == request.auth.uid ||
+        request.resource.data.creatorId == request.auth.uid ||
+        request.resource.data.instructorId == request.auth.uid
+      );
       allow update, delete: if isAuth() && (
         resource.data.hostId == request.auth.uid ||
         resource.data.creatorId == request.auth.uid ||
@@ -470,7 +501,10 @@ service cloud.firestore {
     }
     match /kitchenWorkshops/{workshopId} {
       allow read: if isAuth();
-      allow create: if isAuth();
+      allow create: if isAuth() && (
+        request.resource.data.hostId == request.auth.uid ||
+        request.resource.data.hostUserId == request.auth.uid
+      );
       allow update: if isAuth() && (
         resource.data.hostId == request.auth.uid ||
         resource.data.hostUserId == request.auth.uid ||
@@ -484,7 +518,7 @@ service cloud.firestore {
     }
     match /workshopRegistrations/{registrationId} {
       allow read: if isAuth();
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuth() && resource.data.userId == request.auth.uid;
       allow delete: if isAuth() && resource.data.userId == request.auth.uid;
     }
@@ -525,8 +559,8 @@ service cloud.firestore {
 
       match /messages/{messageId} {
         allow read: if isAuth();
-        allow create: if isAuth();
-        allow update: if isAuth();
+        allow create: if isAuth() && request.resource.data.senderId == request.auth.uid;
+        allow update: if isAuth() && resource.data.senderId == request.auth.uid;
         allow delete: if isAuth() && resource.data.senderId == request.auth.uid;
       }
     }
@@ -535,8 +569,16 @@ service cloud.firestore {
     // Snake_case (app kullaniyor)
     match /co_dining_rooms/{roomId} {
       allow read: if isAuth();
-      allow create: if isAuth();
-      allow update: if isAuth();
+      allow create: if isAuth() && (
+        request.resource.data.createdBy == request.auth.uid ||
+        request.auth.uid in request.resource.data.participants
+      );
+      // Sadece odadaki katılımcılar veya yaratıcı güncelleyebilir
+      allow update: if isAuth() && (
+        resource.data.createdBy == request.auth.uid ||
+        request.auth.uid in resource.data.participants ||
+        isAdmin()
+      );
       allow delete: if isAuth() && (
         resource.data.createdBy == request.auth.uid || isAdmin()
       );
@@ -550,8 +592,16 @@ service cloud.firestore {
     // CamelCase (admin kullaniyor)
     match /coDiningRooms/{roomId} {
       allow read: if true;
-      allow create: if isAuth();
-      allow update: if isAuth();
+      allow create: if isAuth() && (
+        request.resource.data.creatorId == request.auth.uid ||
+        request.resource.data.createdBy == request.auth.uid
+      );
+      allow update: if isAuth() && (
+        resource.data.creatorId == request.auth.uid ||
+        resource.data.createdBy == request.auth.uid ||
+        (resource.data.participants is list && request.auth.uid in resource.data.participants) ||
+        isAdmin()
+      );
       allow delete: if isAuth() && (
         resource.data.creatorId == request.auth.uid || isAdmin()
       );
@@ -565,7 +615,10 @@ service cloud.firestore {
         resource.data.creatorId == request.auth.uid ||
         isAdmin()
       );
-      allow create: if isAuth();
+      allow create: if isAuth() && (
+        request.resource.data.ownerId == request.auth.uid ||
+        request.resource.data.creatorId == request.auth.uid
+      );
       allow update: if isAuth() && (
         resource.data.ownerId == request.auth.uid ||
         request.auth.uid in resource.data.participants ||
@@ -596,7 +649,10 @@ service cloud.firestore {
     // ============ OZEL GUNLER ============
     match /specialDays/{dayId} {
       allow read: if true;
-      allow create: if isAuth();
+      allow create: if isAuth() && (
+        request.resource.data.createdBy == request.auth.uid ||
+        request.resource.data.userId == request.auth.uid
+      );
       allow update: if isAuth() && (
         resource.data.createdBy == request.auth.uid ||
         resource.data.userId == request.auth.uid ||
@@ -655,9 +711,10 @@ service cloud.firestore {
 
     // ============ FCM TOKENS ============
     match /fcmTokens/{tokenId} {
-      allow read: if isAdmin();
-      allow create, update: if isAuth();
-      allow delete: if isAdmin();
+      allow read: if isAdmin() || (isAuth() && resource.data.userId == request.auth.uid);
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuth() && resource.data.userId == request.auth.uid;
+      allow delete: if isAdmin() || (isAuth() && resource.data.userId == request.auth.uid);
     }
 
     // ============ YEMEK PLANLARI ============
@@ -669,14 +726,24 @@ service cloud.firestore {
 
     // ============ EXCHANGE CHATS ============
     match /exchangeChats/{chatId} {
-      allow read: if isAuth();
-      allow create: if isAuth();
-      allow update: if isAuth();
+      allow read: if isAuth() && (
+        !("participants" in resource.data) ||
+        request.auth.uid in resource.data.participants
+      );
+      allow create: if isAuth() && (
+        !("participants" in request.resource.data) ||
+        request.auth.uid in request.resource.data.participants
+      );
+      // Sadece katılımcılar güncelleyebilir
+      allow update: if isAuth() && (
+        !("participants" in resource.data) ||
+        request.auth.uid in resource.data.participants
+      );
       allow delete: if false;
 
       match /messages/{messageId} {
         allow read: if isAuth();
-        allow create: if isAuth();
+        allow create: if isAuth() && request.resource.data.senderId == request.auth.uid;
         allow update, delete: if false;
       }
     }
@@ -684,7 +751,7 @@ service cloud.firestore {
     // ============ BLOG YAZILARI ============
     match /blogPosts/{postId} {
       allow read: if true;
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.authorId == request.auth.uid;
       allow update: if isAuth() && (
         resource.data.authorId == request.auth.uid || isAdmin()
       );
@@ -694,7 +761,7 @@ service cloud.firestore {
 
       match /comments/{commentId} {
         allow read: if true;
-        allow create: if isAuth();
+        allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
         allow update: if isAuth() && resource.data.userId == request.auth.uid;
         allow delete: if isAuth() && (
           resource.data.userId == request.auth.uid || isAdmin()
@@ -705,7 +772,7 @@ service cloud.firestore {
     // ============ FORUM ============
     match /forumTopics/{topicId} {
       allow read: if true;
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.authorId == request.auth.uid;
       allow update: if isAuth() && (
         resource.data.authorId == request.auth.uid ||
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewCount', 'likeCount', 'likedBy', 'replyCount', 'lastReplyAt', 'lastReplyBy', 'lastReplyByName']) ||
@@ -717,7 +784,7 @@ service cloud.firestore {
     }
     match /forumReplies/{replyId} {
       allow read: if true;
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.authorId == request.auth.uid;
       allow update: if isAuth() && resource.data.authorId == request.auth.uid;
       allow delete: if isAuth() && (
         resource.data.authorId == request.auth.uid || isAdmin()
@@ -727,25 +794,28 @@ service cloud.firestore {
     // ============ MENU AI RESULTS ============
     match /menuAiResults/{resultId} {
       allow read: if isAuth() && resource.data.userId == request.auth.uid;
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
       allow update, delete: if false;
     }
 
     // ============ AFFILIATE CLICKS ============
     match /affiliateClicks/{clickId} {
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
       allow read: if isAuth() && resource.data.userId == request.auth.uid;
       allow update, delete: if false;
     }
 
     // ============ ANALYTICS ============
     match /analytics_events/{eventId} {
-      allow create: if isAuth();
+      allow create: if isAuth() && (
+        !("userId" in request.resource.data) ||
+        request.resource.data.userId == request.auth.uid
+      );
       allow read: if isAdmin();
       allow update, delete: if false;
     }
     match /analytics_user_properties/{propId} {
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
       allow read: if isAuth() && (
         resource.data.userId == request.auth.uid || isAdmin()
       );
@@ -756,7 +826,7 @@ service cloud.firestore {
     match /blindTasteChallenges/{challengeId} {
       allow read: if isAuth();
       allow create: if isAdmin();
-      allow update: if isAuth();
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
     match /blindTasteQuestions/{questionId} {
@@ -765,7 +835,7 @@ service cloud.firestore {
     }
     match /blindTasteResults/{resultId} {
       allow read: if isAuth();
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
       allow update, delete: if false;
     }
     match /blindTasteStats/{userId} {
@@ -776,7 +846,8 @@ service cloud.firestore {
     }
     match /blindTasteLeaderboard/{leaderId} {
       allow read: if isAuth();
-      allow create, update: if isAuth();
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuth() && resource.data.userId == request.auth.uid;
       allow delete: if false;
     }
 
@@ -784,7 +855,11 @@ service cloud.firestore {
     match /stories/{storyId} {
       allow read: if isAuth();
       allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuth();
+      allow update: if isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewCount', 'viewedBy']) ||
+        isAdmin()
+      );
       allow delete: if isAuth() && (
         resource.data.userId == request.auth.uid || isAdmin()
       );
