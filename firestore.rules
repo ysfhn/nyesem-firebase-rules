@@ -57,6 +57,13 @@ service cloud.firestore {
           .hasAny(['role', 'isPremium', 'verified', 'premiumUntil', 'isAdmin', 'adminEmails'])
       );
       allow delete: if isAdmin();
+
+      // KVKK: Açık rıza kayıtları
+      match /consents/{consentId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId);
+        allow update, delete: if false; // Rıza kayıtları değiştirilemez/silinemez
+      }
     }
 
     // ============ QR MENÜ SİPARİŞLERİ ============
@@ -933,6 +940,13 @@ service cloud.firestore {
     match /email_rate_limits/{docId}       { allow read, write: if false; }
     match /emailVerifications/{docId}      { allow read, write: if false; }
     match /passwordResets/{docId}          { allow read, write: if false; }
+
+    // ============ GÜVENLİK LOGLARI (KVKK Audit) ============
+    match /securityLogs/{logId} {
+      allow read: if isAuth() && resource.data.userId == request.auth.uid; // Sadece kendi loglarını görebilir
+      allow create: if isAuth(); // Client audit log yazabilir
+      allow update, delete: if false; // Loglar değiştirilemez/silinemez
+    }
 
     // ============ APP CONFIG (versiyon kontrolü vb.) ============
     match /config/{configId} {
