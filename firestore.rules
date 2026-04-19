@@ -859,6 +859,12 @@ service cloud.firestore {
     match /emailVerifications/{docId}      { allow read, write: if false; }
     match /passwordResets/{docId}          { allow read, write: if false; }
 
+    // ============ APP CONFIG (versiyon kontrolü vb.) ============
+    match /config/{configId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+
         // ============ WILDCARD — Tanimlanmayan koleksiyonlara erisim YOK ============
     match /{document=**} {
       allow read, write: if false;
