@@ -1,0 +1,129 @@
+// ============================================================
+// 🆕 E6-E12 — Review / Loyalty / Waiter Call / Stock / Translations
+// "match /databases/{database}/documents { ... }" bloğunun İÇİNE ekle.
+// ============================================================
+
+    // ============ E6 — GUEST REVIEWS (anonim yorum) ============
+    match /guestReviews/{id} {
+      // Anonim müşteri yazabilir; rating + restaurantId zorunlu
+      allow create: if request.resource.data.keys().hasAll(['restaurantId','rating'])
+                    && request.resource.data.rating is int
+                    && request.resource.data.rating >= 1
+                    && request.resource.data.rating <= 5
+                    && request.resource.data.restaurantId is string;
+      allow read:   if isAuth() && (
+                      isAdmin() ||
+                      isRestaurantOwner(resource.data.restaurantId)
+                    );
+      allow update, delete: if isAdmin();
+    }
+
+    // ============ OWNER ALERTS (uyarı feed'i) ============
+    match /ownerAlerts/{id} {
+      // Sadece sunucu (admin SDK) yazar
+      allow create, delete: if false;
+      allow read:   if isAuth() && (
+                      isAdmin() ||
+                      isRestaurantOwner(resource.data.restaurantId)
+                    );
+      // Owner sadece "read" flag'ini güncelleyebilir
+      allow update: if isAuth() && isRestaurantOwner(resource.data.restaurantId)
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read','readAt']);
+    }
+
+    // ============ E7 — LOYALTY MEMBERS / TXNS / COUPONS ============
+    match /loyaltyMembers/{id} {
+      // Server tarafı yazar (puan kazandırma/ödeme akışı)
+      allow create, update, delete: if false;
+      allow read: if isAuth() && (
+                    isAdmin() ||
+                    isRestaurantOwner(resource.data.restaurantId)
+                  );
+    }
+    match /loyaltyTxns/{id} {
+      allow create, update, delete: if false;
+      allow read: if isAuth() && (
+                    isAdmin() ||
+                    isRestaurantOwner(resource.data.restaurantId)
+                  );
+    }
+    match /coupons/{code} {
+      // Anonim müşteri lookup (apply için get açık)
+      allow get: if true;
+      allow list: if isAuth() && (
+                    isAdmin() ||
+                    isRestaurantOwner(resource.data.restaurantId)
+                  );
+      // Yazma owner; ama aslında server route üzerinden yapılır
+      allow create, update, delete: if isAuth() && (
+                                      isAdmin() ||
+                                      isRestaurantOwner(request.resource.data.restaurantId) ||
+                                      isRestaurantOwner(resource.data.restaurantId)
+                                    );
+    }
+    match /couponRedemptions/{id} {
+      allow create, update, delete: if false;
+      allow read: if isAuth() && (
+                    isAdmin() ||
+                    isRestaurantOwner(resource.data.restaurantId)
+                  );
+    }
+
+    // ============ E11 — WAITER CALLS ============
+    match /waiterCalls/{id} {
+      // Anonim müşteri çağrı oluşturur
+      allow create: if request.resource.data.keys().hasAll(['restaurantId','tableId','type','status'])
+                    && request.resource.data.status == 'open'
+                    && request.resource.data.type in ['call','bill','water']
+                    && request.resource.data.restaurantId is string;
+      allow read:   if isAuth() && (
+                      isAdmin() ||
+                      isRestaurantOwner(resource.data.restaurantId)
+                    );
+      allow update: if isAuth() && (
+                      isAdmin() ||
+                      isRestaurantOwner(resource.data.restaurantId)
+                    );
+      allow delete: if isAdmin();
+    }
+
+    // ============ E12 — STOCK LEVELS / MOVEMENTS ============
+    match /stockLevels/{id} {
+      allow read: if isAuth() && (
+                    isAdmin() ||
+                    isRestaurantOwner(resource.data.restaurantId)
+                  );
+      // Server (admin SDK) yazar
+      allow create, update, delete: if false;
+    }
+    match /stockMovements/{id} {
+      allow read: if isAuth() && (
+                    isAdmin() ||
+                    isRestaurantOwner(resource.data.restaurantId)
+                  );
+      allow create, update, delete: if false;
+    }
+
+    // ============ E10 — TRANSLATIONS CACHE (paylaşılan, public read) ============
+    match /translationsCache/{id} {
+      allow read: if true;            // tüm restoranlar paylaşır
+      allow write: if false;           // sadece server yazar
+    }
+
+    // ============ POS CONNECTIONS / TIP PAYMENTS ============
+    match /posConnections/{id} {
+      // Hassas (apiKey/secret içerebilir) — sadece owner & admin
+      allow read: if isAuth() && (
+                    isAdmin() ||
+                    isRestaurantOwner(resource.data.restaurantId)
+                  );
+      allow create, update, delete: if false;  // server tarafı yapar
+    }
+    match /tipPayments/{id} {
+      allow get: if true;             // ödeme sonrası kullanıcı görebilir
+      allow list: if isAuth() && (
+                    isAdmin() ||
+                    isRestaurantOwner(resource.data.restaurantId)
+                  );
+      allow create, update, delete: if false;
+    }

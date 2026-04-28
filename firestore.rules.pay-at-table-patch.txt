@@ -1,0 +1,66 @@
+// ============================================================
+// 🆕 PAY-AT-TABLE — bu blokları mevcut firestore.rules dosyasına
+// "match /databases/{database}/documents { ... }" bloğunun İÇİNE ekle.
+// ============================================================
+
+    // ============ BILLS (Adisyon) ============
+    match /bills/{billId} {
+      // Okuma: müşteri (anonim) tek bill detayını okuyabilir.
+      // Liste sorguları (where restaurantId==X) ise yetkili kullanıcı ister.
+      allow get:    if true;
+      allow list:   if isAuth() && (
+                      isAdmin() ||
+                      isRestaurantOwner(resource.data.restaurantId)
+                    );
+      allow create: if isAuth() && (
+                      isAdmin() ||
+                      isRestaurantOwner(request.resource.data.restaurantId)
+                    )
+                    && request.resource.data.keys().hasAll(['restaurantId','tableId','items','total','status'])
+                    && request.resource.data.items is list
+                    && request.resource.data.items.size() > 0
+                    && request.resource.data.items.size() <= 200
+                    && request.resource.data.total is number
+                    && request.resource.data.total >= 0
+                    && request.resource.data.total <= 100000  // 100k TL üst limit
+                    && request.resource.data.status in ['open','in_payment','partially_paid','paid','void'];
+      // Update/delete: sadece restoran sahibi veya admin (server-side de yapar)
+      allow update: if isAuth() && (
+                      isAdmin() ||
+                      isRestaurantOwner(resource.data.restaurantId)
+                    );
+      allow delete: if isAdmin();
+
+      // Bills alt koleksiyonu: payments
+      match /payments/{paymentId} {
+        // Müşteri kendi ödemesinin durumunu görmek isteyebilir → açık tut
+        allow get:  if true;
+        allow list: if isAuth() && (
+                      isAdmin() ||
+                      get(/databases/$(database)/documents/bills/$(billId)).data.restaurantId
+                        == get(/databases/$(database)/documents/restaurants/$(get(/databases/$(database)/documents/bills/$(billId)).data.restaurantId)).data.ownerId  // owner check via parent
+                    );
+        // Sadece server (admin SDK) yazar — clientten kapalı
+        allow create, update, delete: if false;
+      }
+    }
+
+    // ============ SUBMERCHANTS (Iyzico Marketplace) ============
+    match /submerchants/{restaurantId} {
+      // Sadece restoran sahibi veya admin görebilir (IBAN gibi hassas veri)
+      allow read:  if isAuth() && (
+                     isAdmin() ||
+                     get(/databases/$(database)/documents/restaurants/$(restaurantId)).data.ownerId == request.auth.uid
+                   );
+      // Yazma yalnızca server-side (admin SDK) — clientten kesinlikle kapalı
+      allow write: if false;
+    }
+
+    // ============ RESTAURANT TABLES (QR atanmış masalar) ============
+    match /restaurants/{restaurantId}/tables/{tableId} {
+      allow read:  if true;  // QR taradığında masa bilgisi görünmeli
+      allow write: if isAuth() && (
+                     isAdmin() ||
+                     isRestaurantOwner(restaurantId)
+                   );
+    }

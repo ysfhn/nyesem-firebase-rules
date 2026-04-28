@@ -82,11 +82,14 @@ service cloud.firestore {
 
     // ============ GARSON ÇAĞRILARI ============
     match /waiterCalls/{callId} {
-      allow read: if isAuth();
-      allow create: if request.resource.data.keys().hasAll(['restaurantId', 'tableNumber'])
+      allow read: if isAuth() && (
+        isRestaurantOwner(resource.data.restaurantId) || isAdmin()
+      );
+      allow create: if request.resource.data.keys().hasAll(['restaurantId', 'tableId', 'type', 'status'])
                     && request.resource.data.restaurantId is string
-                    && request.resource.data.tableNumber is string;
-      // Sadece restoran sahibi/admin durumu güncelleyebilir/silebilir
+                    && request.resource.data.tableId is string
+                    && request.resource.data.type in ['call', 'bill', 'water']
+                    && request.resource.data.status == 'open';
       allow update, delete: if isAuth() && (
         isRestaurantOwner(resource.data.restaurantId) || isAdmin()
       );
@@ -953,6 +956,165 @@ service cloud.firestore {
     match /config/{configId} {
       allow read: if isAuth();
       allow write: if isAdmin();
+    }
+
+    // ============ PAY-AT-TABLE: BILLS ============
+    match /bills/{billId} {
+      allow get: if true;
+      allow list: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(resource.data.restaurantId)
+      );
+      allow create: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(request.resource.data.restaurantId)
+      )
+      && request.resource.data.keys().hasAll(['restaurantId', 'tableId', 'items', 'total', 'status'])
+      && request.resource.data.items is list
+      && request.resource.data.items.size() > 0
+      && request.resource.data.items.size() <= 200
+      && request.resource.data.total is number
+      && request.resource.data.total >= 0
+      && request.resource.data.total <= 100000
+      && request.resource.data.status in ['open', 'in_payment', 'partially_paid', 'paid', 'void'];
+      allow update: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(resource.data.restaurantId)
+      );
+      allow delete: if isAdmin();
+
+      match /payments/{paymentId} {
+        allow get: if true;
+        allow list: if isAuth() && (
+          isAdmin() ||
+          isRestaurantOwner(get(/databases/$(database)/documents/bills/$(billId)).data.restaurantId)
+        );
+        allow create, update, delete: if false;
+      }
+    }
+
+    // ============ PAY-AT-TABLE: SUBMERCHANTS ============
+    match /submerchants/{restaurantId} {
+      allow read: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(restaurantId)
+      );
+      allow write: if false;
+    }
+
+    // ============ RESTAURANT TABLES ============
+    match /restaurants/{restaurantId}/tables/{tableId} {
+      allow read: if true;
+      allow write: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(restaurantId)
+      );
+    }
+
+    // ============ E6: GUEST REVIEWS ============
+    match /guestReviews/{id} {
+      allow create: if request.resource.data.keys().hasAll(['restaurantId', 'rating'])
+                    && request.resource.data.rating is int
+                    && request.resource.data.rating >= 1
+                    && request.resource.data.rating <= 5
+                    && request.resource.data.restaurantId is string;
+      allow read: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(resource.data.restaurantId)
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    // ============ E6/E12: OWNER ALERTS ============
+    match /ownerAlerts/{id} {
+      allow create, delete: if false;
+      allow read: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(resource.data.restaurantId)
+      );
+      allow update: if isAuth() && isRestaurantOwner(resource.data.restaurantId)
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']);
+    }
+
+    // ============ E7: LOYALTY ============
+    match /loyaltyMembers/{id} {
+      allow create, update, delete: if false;
+      allow read: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(resource.data.restaurantId)
+      );
+    }
+    match /loyaltyTxns/{id} {
+      allow create, update, delete: if false;
+      allow read: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(resource.data.restaurantId)
+      );
+    }
+    match /coupons/{code} {
+      allow get: if true;
+      allow list: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(resource.data.restaurantId)
+      );
+      allow create: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(request.resource.data.restaurantId)
+      );
+      allow update: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(resource.data.restaurantId)
+      );
+      allow delete: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(resource.data.restaurantId)
+      );
+    }
+    match /couponRedemptions/{id} {
+      allow create, update, delete: if false;
+      allow read: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(resource.data.restaurantId)
+      );
+    }
+
+    // ============ E10: TRANSLATIONS CACHE ============
+    match /translationsCache/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ============ E12: STOCK ============
+    match /stockLevels/{id} {
+      allow read: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(resource.data.restaurantId)
+      );
+      allow create, update, delete: if false;
+    }
+    match /stockMovements/{id} {
+      allow read: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(resource.data.restaurantId)
+      );
+      allow create, update, delete: if false;
+    }
+
+    // ============ POS / TIP PAYMENTS ============
+    match /posConnections/{id} {
+      allow read: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(resource.data.restaurantId)
+      );
+      allow create, update, delete: if false;
+    }
+    match /tipPayments/{id} {
+      allow get: if true;
+      allow list: if isAuth() && (
+        isAdmin() ||
+        isRestaurantOwner(resource.data.restaurantId)
+      );
+      allow create, update, delete: if false;
     }
 
         // ============ WILDCARD — Tanimlanmayan koleksiyonlara erisim YOK ============

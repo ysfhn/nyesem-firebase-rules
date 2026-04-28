@@ -1,0 +1,81 @@
+// Firestore composite index'leri — E6-E12
+// firebase-rules/firestore.indexes.json'a aşağıdakileri ekle (indexes array'ine).
+
+[
+  // E6 — guestReviews: restaurantId + createdAt desc
+  {
+    "collectionGroup": "guestReviews",
+    "queryScope": "COLLECTION",
+    "fields": [
+      { "fieldPath": "restaurantId", "order": "ASCENDING" },
+      { "fieldPath": "createdAt",    "order": "DESCENDING" }
+    ]
+  },
+  // ownerAlerts: restaurantId + createdAt desc
+  {
+    "collectionGroup": "ownerAlerts",
+    "queryScope": "COLLECTION",
+    "fields": [
+      { "fieldPath": "restaurantId", "order": "ASCENDING" },
+      { "fieldPath": "createdAt",    "order": "DESCENDING" }
+    ]
+  },
+  // E11 — waiterCalls: restaurantId + status + createdAt
+  {
+    "collectionGroup": "waiterCalls",
+    "queryScope": "COLLECTION",
+    "fields": [
+      { "fieldPath": "restaurantId", "order": "ASCENDING" },
+      { "fieldPath": "status",       "order": "ASCENDING" },
+      { "fieldPath": "createdAt",    "order": "DESCENDING" }
+    ]
+  },
+  // waiterCalls throttle query: restaurantId+tableId+type+status
+  {
+    "collectionGroup": "waiterCalls",
+    "queryScope": "COLLECTION",
+    "fields": [
+      { "fieldPath": "restaurantId", "order": "ASCENDING" },
+      { "fieldPath": "tableId",      "order": "ASCENDING" },
+      { "fieldPath": "type",         "order": "ASCENDING" },
+      { "fieldPath": "status",       "order": "ASCENDING" }
+    ]
+  },
+  // E7 — coupons: restaurantId + active
+  {
+    "collectionGroup": "coupons",
+    "queryScope": "COLLECTION",
+    "fields": [
+      { "fieldPath": "restaurantId", "order": "ASCENDING" },
+      { "fieldPath": "active",       "order": "ASCENDING" }
+    ]
+  },
+  // E12 — stockLevels: restaurantId + lowAlert
+  {
+    "collectionGroup": "stockLevels",
+    "queryScope": "COLLECTION",
+    "fields": [
+      { "fieldPath": "restaurantId", "order": "ASCENDING" },
+      { "fieldPath": "lowAlert",     "order": "ASCENDING" }
+    ]
+  },
+  // Bills: restaurantId + status + createdAt (analytics)
+  {
+    "collectionGroup": "bills",
+    "queryScope": "COLLECTION",
+    "fields": [
+      { "fieldPath": "restaurantId", "order": "ASCENDING" },
+      { "fieldPath": "status",       "order": "ASCENDING" },
+      { "fieldPath": "createdAt",    "order": "DESCENDING" }
+    ]
+  },
+  // tipPayments: restaurantId + createdAt
+  {
+    "collectionGroup": "tipPayments",
+    "queryScope": "COLLECTION",
+    "fields": [
+      { "fieldPath": "restaurantId", "order": "ASCENDING" },
+      { "fieldPath": "createdAt",    "order": "DESCENDING" }
+    ]
+  }
+]
