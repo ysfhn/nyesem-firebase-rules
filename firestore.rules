@@ -1002,6 +1002,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ============ PAY-AT-TABLE: SUBMERCHANT APPROVAL LOGS ============
+    // Audit trail — sadece admin SDK yazar, sadece admin okur (owner görmez).
+    match /submerchantApprovalLogs/{logId} {
+      allow read: if isAuth() && isAdmin();
+      allow write: if false;
+    }
+
     // ============ RESTAURANT TABLES ============
     match /restaurants/{restaurantId}/tables/{tableId} {
       allow read: if true;
