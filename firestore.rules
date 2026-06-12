@@ -66,6 +66,16 @@ service cloud.firestore {
       }
     }
 
+    // ============ HERKESE AÇIK PROFİLLER ============
+    // KVKK: users owner-only olduğundan sosyal özellikler (arkadaş listesi,
+    // liderlik tablosu, blind-taste) PII içermeyen bu aynadan okur.
+    // Ayna sunucudaki onUserPublicProfileMirror trigger'ı ile güncellenir.
+    match /publicProfiles/{userId} {
+      allow read: if isAuth();
+      // İstemci doğrudan yazamaz; yalnızca Cloud Function (Admin SDK) yazar
+      allow write: if false;
+    }
+
     // ============ QR MENÜ SİPARİŞLERİ ============
     match /qrMenuOrders/{orderId} {
       allow read: if isAuth();
