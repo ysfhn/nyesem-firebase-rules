@@ -78,7 +78,15 @@ service cloud.firestore {
 
     // ============ QR MENÜ SİPARİŞLERİ ============
     match /qrMenuOrders/{orderId} {
-      allow read: if isAuth();
+      // Sadece ilgili restoranın sahibi (veya admin) okuyabilir — cross-tenant sızıntı engeli.
+      // Owner paneli where("restaurantId","==",id) ile sorgular; kural bu sorguyla uyumludur.
+      // Mobil uyumluluk: sipariş userId ile yazılmışsa sahibi kendi siparişini okuyabilir
+      // (mevcut anonim siparişlerde userId yoktur; bu dal ileriye dönük güvencedir).
+      allow read: if isAuth() && (
+        isRestaurantOwner(resource.data.restaurantId) ||
+        resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
       // QR menü siparişi anonim oluşturulabilir (müşteri giriş yapmadan)
       allow create: if request.resource.data.keys().hasAll(['restaurantId', 'items', 'tableNumber'])
                     && request.resource.data.items is list
