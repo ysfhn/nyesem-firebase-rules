@@ -1257,7 +1257,7 @@
       ]
     },
     {
-      "collectionGroup": "coupons",
+      "collectionGroup": "bills",
       "queryScope": "COLLECTION",
       "fields": [
         {
@@ -1265,8 +1265,16 @@
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "active",
+          "fieldPath": "tableId",
           "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
         }
       ]
     },
