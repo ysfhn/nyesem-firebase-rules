@@ -41,6 +41,13 @@ service firebase.storage {
       allow write: if request.auth != null && isValidImageSize() && isImage();
     }
 
+    // Restoran üyelik belgeleri (vergi levhası vb.) — hassas; herkese açık DEĞİL.
+    // Yalnızca belgeyi yükleyen sahip yazar; sahip veya admin okur (PDF/görsel).
+    match /restaurant-documents/{userId}/{fileName} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isStorageAdmin());
+      allow write: if request.auth != null && request.auth.uid == userId && isValidDocumentSize() && isDocument();
+    }
+
     // Reklam gorselleri - herkes okuyabilir
     match /advertisements/{fileName} {
       allow read: if true;
